@@ -44,6 +44,17 @@ jobs:
           NOTION_CATEGORIES_DB_ID: ${{ secrets.NOTION_CATEGORIES_DB_ID }}
           NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
 
+      - name: Upload runtime secrets to Worker
+        run: |
+          echo "${{ secrets.NOTION_TOKEN }}" | npx wrangler secret put NOTION_TOKEN --name binguo
+          echo "${{ secrets.NOTION_LINKS_DB_ID }}" | npx wrangler secret put NOTION_LINKS_DB_ID --name binguo
+          echo "${{ secrets.NOTION_WEBSITE_CONFIG_ID }}" | npx wrangler secret put NOTION_WEBSITE_CONFIG_ID --name binguo
+          echo "${{ secrets.NOTION_CATEGORIES_DB_ID }}" | npx wrangler secret put NOTION_CATEGORIES_DB_ID --name binguo
+          echo "${{ secrets.NEXT_PUBLIC_SITE_URL }}" | npx wrangler secret put NEXT_PUBLIC_SITE_URL --name binguo
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Deploy to Cloudflare Workers (OpenNext)
         run: pnpm exec opennextjs-cloudflare deploy
         env:
