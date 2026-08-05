@@ -1,8 +1,8 @@
-import { Client } from "@notionhq/client";
-import { GetDatabaseResponse, DatabaseObjectResponse } from "@notionhq/client/build/src/api-endpoints";
 import { cache } from "react";
 import { envConfig } from '@/config';
 import { cleanupOrphanIcons } from '@/lib/icon-sync';
+import { createNotionClient } from '@/lib/notion-client';
+import type { GetDatabaseResponse, DatabaseObjectResponse } from "@notionhq/client/build/src/api-endpoints";
 import {
     Link,
     WebsiteConfig,
@@ -16,10 +16,9 @@ import {
 } from '@/types';
 import { isValidTheme } from '@/themes/registry';
 
-export const notion = new Client({
-    auth: envConfig.NOTION_TOKEN,
-    timeoutMs: 10000,
-});
+// 使用基于原生 fetch 的轻量客户端，避免 @notionhq/client 的 node-fetch
+// 在 Cloudflare Workers(unenv) 运行时报 https.request 未实现的问题。
+export const notion = createNotionClient(envConfig.NOTION_TOKEN!);
 
 // 获取网址链接
 export const getLinks = cache(async () => {
