@@ -35,13 +35,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Deploy to Cloudflare Workers (OpenNext)
-        run: pnpm exec opennextjs-cloudflare deploy
+      - name: Build (OpenNext for Cloudflare)
+        run: pnpm exec opennextjs-cloudflare build
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_LINKS_DB_ID: ${{ secrets.NOTION_LINKS_DB_ID }}
           NOTION_WEBSITE_CONFIG_ID: ${{ secrets.NOTION_WEBSITE_CONFIG_ID }}
           NOTION_CATEGORIES_DB_ID: ${{ secrets.NOTION_CATEGORIES_DB_ID }}
           NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+
+      - name: Deploy to Cloudflare Workers (OpenNext)
+        run: pnpm exec opennextjs-cloudflare deploy
+        env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
