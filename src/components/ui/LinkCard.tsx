@@ -234,6 +234,9 @@ const LinkCard = memo(function LinkCard({ link, className, showPromoBadge = fals
   const cardRef = useRef<HTMLDivElement>(null);
   const [toast, setToast] = useState({ show: false, msg: '' });
   const toastTimer = useRef<number | undefined>(undefined);
+  // 触屏设备点击被折叠标题/描述时，提示框显示在卡片上方（而非屏幕底部）
+  const [touchTooltip, setTouchTooltip] = useState<{ show: boolean; rect: DOMRect | null; content: string }>({ show: false, rect: null, content: '' });
+  const touchTimer = useRef<number | undefined>(undefined);
   const { theme } = useTheme();
 
   // 🆕 客户端挂载后再应用卡片配色，避免 hydration 不一致
@@ -313,7 +316,8 @@ const LinkCard = memo(function LinkCard({ link, className, showPromoBadge = fals
     );
   }, []);
 
-  // 触屏设备点击标题/描述：内容被 line-clamp 截断时复用 Toast 展示完整文本（3 秒）
+  // 触屏设备点击标题/描述：内容被 line-clamp 截断时，将完整文本显示在「卡片上方」的提示框
+  // （而非屏幕底部 Toast），避免被手指遮挡，注意力停留在当前卡片位置。
   const handleContentClick = useCallback((
     event: React.MouseEvent<HTMLElement>,
     type: 'title' | 'desc'
@@ -324,10 +328,23 @@ const LinkCard = memo(function LinkCard({ link, className, showPromoBadge = fals
       ? event.currentTarget.querySelector('h3')
       : event.currentTarget.querySelector('p');
     if (!target) return;
-    // 仅当内容被截断（scrollHeight 超出 clientHeight）时才触发 Toast
+    // 仅当内容被截断（scrollHeight 超出 clientHeight）时才触发
     if (target.scrollHeight <= target.clientHeight) return;
-    showToast(type === 'title' ? link.name : (link.desc ?? ''), 3000);
-  }, [showToast, link.name, link.desc]);
+    // 锚定整张卡片，与桌面端 Tooltip 定位一致
+    const card = cardRef.current;
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    setTouchTooltip({
+      show: true,
+      rect,
+      content: type === 'title' ? link.name : (link.desc ?? ''),
+    });
+    if (touchTimer.current) window.clearTimeout(touchTimer.current);
+    touchTimer.current = window.setTimeout(
+      () => setTouchTooltip({ show: false, rect: null, content: '' }),
+      3000
+    );
+  }, [link.name, link.desc]);
 
   const handleCopyCommand = useCallback(async () => {
     try {
@@ -374,6 +391,24 @@ const LinkCard = memo(function LinkCard({ link, className, showPromoBadge = fals
 
   useEffect(() => () => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    if (touchTimer.current) window.clearTimeout(touchTimer.current);
+  }, []);
+
+  // 移动端：页面/卡片滚动时立即关闭提示框（轻点弹框不该残留）
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!window.matchMedia('(hover: none)').matches) return; // 仅触屏设备
+    const closeAll = () => {
+      setTitleTooltip((s) => (s.show ? { show: false, rect: null } : s));
+      setDescTooltip((s) => (s.show ? { show: false, rect: null } : s));
+      setTouchTooltip((s) => (s.show ? { show: false, rect: null, content: '' } : s));
+    };
+    window.addEventListener('scroll', closeAll, true);
+    window.addEventListener('touchmove', closeAll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', closeAll, true);
+      window.removeEventListener('touchmove', closeAll);
+    };
   }, []);
 
   // 当 link 变化时更新图片源
@@ -628,6 +663,13 @@ const LinkCard = memo(function LinkCard({ link, className, showPromoBadge = fals
           cardRect={descTooltip.rect}
         />
       )}
+
+      {/* 触屏设备：点击被折叠标题/描述时，完整文本显示在卡片上方的提示框 */}
+      <Tooltip 
+        content={touchTooltip.content}
+        show={touchTooltip.show}
+        cardRect={touchTooltip.rect}
+      />
 
       {/* Toast 提示 */}
       <Toast msg={toast.msg} show={toast.show} />
