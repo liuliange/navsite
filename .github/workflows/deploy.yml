@@ -45,6 +45,8 @@ jobs:
           NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
 
       - name: Upload runtime secrets to Worker
+        # 仅手动触发时执行：定时触发默认 Worker 上已有 secrets，无需每次重传
+        if: github.event_name == 'workflow_dispatch'
         run: |
           echo "${{ secrets.NOTION_TOKEN }}" | npx wrangler secret put NOTION_TOKEN --name binguo
           echo "${{ secrets.NOTION_LINKS_DB_ID }}" | npx wrangler secret put NOTION_LINKS_DB_ID --name binguo
