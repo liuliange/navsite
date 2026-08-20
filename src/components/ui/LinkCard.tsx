@@ -3,6 +3,7 @@
 import { Link } from '@/types';
 import { motion } from 'framer-motion';
 import { Copy, Share2, ExternalLink } from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
 import React, { useState, useEffect, memo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
@@ -83,8 +84,8 @@ function Tooltip({ content, show, cardRect }: { content: string; show: boolean; 
   return createPortal(
     <div
       ref={ref}
-      className="fixed p-2 rounded-lg bg-popover/95 backdrop-blur supports-[backdrop-filter]:bg-popover/85
-                border border-white/20 shadow-lg z-[100] pointer-events-none
+      className="fixed p-2 rounded-lg bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90
+                border border-slate-200 shadow-lg z-[100] pointer-events-none
                 animate-in fade-in zoom-in-95 duration-200 tooltip-popup"
       style={{
         left: finalLeft,
@@ -94,7 +95,7 @@ function Tooltip({ content, show, cardRect }: { content: string; show: boolean; 
         visibility: adjustedStyle ? 'visible' : 'hidden',
       }}
     >
-      <p className="text-sm text-popover-foreground break-words leading-snug">{content}</p>
+      <p className="text-sm text-slate-800 break-words leading-snug">{content}</p>
     </div>,
     document.body
   );
@@ -109,8 +110,8 @@ function Toast({ msg, show }: { msg: string; show: boolean }) {
   return createPortal(
     <div
       className="fixed left-0 right-0 mx-auto w-fit max-w-[90vw] bottom-6 z-[100] pointer-events-none
-                px-4 py-2 rounded-lg bg-popover/95 backdrop-blur supports-[backdrop-filter]:bg-popover/85
-                border border-white/20 shadow-lg text-sm text-popover-foreground
+                px-4 py-2 rounded-lg bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90
+                border border-slate-200 shadow-lg text-sm text-slate-800
                 animate-in fade-in zoom-in-95 duration-200"
     >
       {msg}
@@ -155,9 +156,12 @@ function getCardColorData(color?: string) {
   if (!colorConfig) {
     return { bg: '', textColor: '', applyColor: false };
   }
+  // 有颜色的卡片统一使用白色文字（标题、标签等），与底部描述白色保持一致，
+  // 覆盖麦金塔1984、包豪斯三原色、浅色等所有主题。
+  const textColor = '#ffffff';
   return {
     bg: colorConfig.bg,
-    textColor: colorConfig.text === 'white' ? '#ffffff' : '#1a1a1a',
+    textColor,
     applyColor: true,
   };
 }
@@ -275,11 +279,12 @@ const LinkCard = memo(function LinkCard({ link, className, showPromoBadge = fals
   }, []);
 
   // 有颜色配置时应用 Notion 配色，否则沿用主题默认样式（mounted 后再应用）
+  // 浅色主题（非 dark、非包豪斯/麦金塔等深色系）标题用黑字，否则白字
   const cardColorData = mounted
     ? getCardColorData(link.cardColor)
     : { bg: '', textColor: '', applyColor: false };
 
-  const tagUseCardColor = cardColorData.applyColor && !theme?.includes('macintosh');
+  // 麦金塔主题判断（顶栏彩色装饰仍依赖 theme?.includes('macintosh') 内联判断）
 
   // 底部标签计算：
   // - 角标标签来自 promo 单选字段：任何不在 HIDDEN_TAGS 里的非空值都视为角标，
@@ -292,14 +297,16 @@ const LinkCard = memo(function LinkCard({ link, className, showPromoBadge = fals
   const normalTags = (link.tags ?? []).filter((t) => !HIDDEN_TAGS.includes(t));
   const visibleTags = [...badgeTags, ...normalTags];
 
+  // 操作按钮：底栏为中性灰底，按钮统一用半透明底 + 跟随底栏文字色(--card-footer-fg)，
+  // 不再依赖“黑底白字”假设，所有主题自动适配
   const actionClass = cn(
     'link-tag inline-flex items-center justify-center gap-1 px-2 py-0.5 text-xs rounded-md transition-colors shrink-0 cursor-pointer hover:opacity-80 min-h-[1.25rem]',
-    tagUseCardColor
-      ? 'bg-white/20'
-      : 'bg-foreground/15 text-foreground/90 group-hover:bg-primary/15 group-hover:text-primary border border-foreground/10'
+    'bg-[color:var(--card-footer-fg)]/20 text-[color:var(--card-footer-fg)] border border-[color:var(--card-footer-fg)]/20'
   );
 
-  const actionStyle = tagUseCardColor ? { color: cardColorData.textColor } : undefined;
+  // 仅在挂载后（客户端确定主题）才应用内联色，未挂载时保持 undefined，
+  // 与 SSR 输出一致，消除 hydration mismatch
+  const actionStyle = undefined;
 
   const handleMouseLeave = useCallback((isTitle: boolean) => {
       const setter = isTitle ? setTitleTooltip : setDescTooltip;
@@ -411,19 +418,23 @@ const LinkCard = memo(function LinkCard({ link, className, showPromoBadge = fals
     };
   }, []);
 
-  // 当 link 变化时更新图片源
+  // 当 link 的 id 变化时（即切换到不同链接）才重置图标状态。
+  // 依赖用 link.id 而非整个 link 引用：父组件若每帧重建 link 对象（引用变化但内容相同），
+  // 用 id 比较可避免无意义的重复 setState 与重渲染。
+  const lastLinkIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (lastLinkIdRef.current === link.id) return;
+    lastLinkIdRef.current = link.id;
     setIconState(getInitialIconState(link));
-  }, [link]);
+  }, [link.id]);
 
-  // 每张卡片只对当前 link 启动一次超时兜底，避免 effect 依赖变化导致的递归更新
+  // 每张卡片只对当前 link 启动一次超时兜底。
+  // 关键：effect 依赖只放 [link]，不在依赖里放 iconState.*，
+  // 否则 state 变化会触发 effect 反复重跑（clearTimeout/重设 timer），
+  // 在 link 引用不稳定时形成无限递归 setState，导致 "Maximum update depth exceeded"。
   const timeoutStartedRef = useRef(false);
   useEffect(() => {
     timeoutStartedRef.current = false;
-  }, [link]);
-
-  useEffect(() => {
-    if (timeoutStartedRef.current) return;
     if (iconState.isLoaded || iconState.src === FALLBACK_ICON_SRC || iconState.showFallback) {
       return;
     }
@@ -434,13 +445,13 @@ const LinkCard = memo(function LinkCard({ link, className, showPromoBadge = fals
         if (state.isLoaded || state.src === FALLBACK_ICON_SRC || state.showFallback) {
           return state;
         }
-
         return getTimedOutIconState(state);
       });
     }, ICON_LOAD_TIMEOUT_MS);
 
     return () => window.clearTimeout(timeoutId);
-  }, [iconState.isLoaded, iconState.src, iconState.showFallback]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [link]);
 
   useEffect(() => {
     if (!iconState.showFallback) return;
@@ -472,64 +483,126 @@ const LinkCard = memo(function LinkCard({ link, className, showPromoBadge = fals
   }, [iconState.showFallback]);
 
   return (
-    <>
-    <motion.div
-        ref={cardRef}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-        data-has-color={cardColorData.applyColor ? 'true' : undefined}
-        style={cardColorData.applyColor ? {
-          backgroundColor: cardColorData.bg,
-          color: cardColorData.textColor,
-        } : undefined}
-        className={cn(
-          "group flex h-full flex-col p-2.5 rounded-xl border border-border/50 bg-card hover:border-primary/50 transition-all",
-          "hover:shadow-lg hover:shadow-primary/5",
-          "w-full max-w-full",
-          className
-        )}
-      >
-        {/* 内容容器 */}
-        <div className="flex flex-col h-full gap-2">
-          {/* 图标和名称行 */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {/* 图标容器 */}
-            <motion.div 
+      <>
+      <motion.div
+          ref={cardRef}
+          // 包豪斯主题下禁用 hover scale：与 bauhaus 自带的 :hover transform translate(-1,-1) +
+          // backdrop-blur-md 叠加会产生可见的白色毛边（浅色背景下最明显），其他主题保留缩放反馈
+          whileHover={theme?.startsWith('bauhaus') ? undefined : { scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          data-has-color={cardColorData.applyColor ? 'true' : undefined}
+          className={cn(
+            "group flex h-full flex-col rounded-xl border border-border/50 hover:border-primary/50 transition-all overflow-hidden",
+            // 麦金塔主题保留原主题容器样式（边框/阴影/面板色由主题 CSS 提供）；
+            // 其他有颜色的卡片使用半透明毛玻璃，与深色主题观感一致
+            cardColorData.applyColor && !theme?.includes('macintosh') ? "backdrop-blur-md" : "bg-card",
+            "hover:shadow-lg hover:shadow-primary/5",
+            "w-full max-w-full",
+            className
+          )}
+          style={cardColorData.applyColor && !theme?.includes('macintosh')
+            ? { backgroundColor: 'rgba(255,255,255,0.08)' }
+            : undefined}
+        >
+          {/* 彩色顶栏：图标 + 标题（仅在有 cardColor 时显示背景色） */}
+          <div
+            className={cn(
+              "flex-shrink-0",
+              cardColorData.applyColor && "min-h-[6rem]",
+              // 麦金塔主题：顶栏压在 ::before 装饰条之上(z-index:1)，自身内部再画一条相同纹理，
+              // 实现“装饰条可见 + 彩色铺满无间隙”，彻底解决二者互斥
+              cardColorData.applyColor && theme?.includes('macintosh') && "mac-topbar"
+            )}
+            style={{
+              backgroundColor: cardColorData.applyColor ? cardColorData.bg : undefined,
+              color: cardColorData.applyColor ? cardColorData.textColor : undefined,
+              position: cardColorData.applyColor ? 'relative' : undefined,
+              zIndex: cardColorData.applyColor ? 1 : undefined,
+            }}
+          >
+            {/* 麦金塔装饰条：复制 ::before 的标题栏纹理，位于彩色背景之上、内容之下 */}
+            {cardColorData.applyColor && theme?.includes('macintosh') && (
+              <span className="mac-titlebar-overlay" aria-hidden="true" />
+            )}
+            <div
+              className="flex flex-col items-start gap-2 p-2.5 w-full"
+              style={{
+                // 麦金塔主题下顶部预留 0.95rem（装饰条高度）让标题栏纹理显示在彩色背景之上
+                paddingTop: cardColorData.applyColor && theme?.includes('macintosh') ? 'calc(0.95rem + 0.625rem)' : undefined,
+              }}
+            >
+            {/* 图标容器（半透明白底毛玻璃方块 + 白字图标，对齐截图/inBoxCard-main Home.tsx:204） */}
+            <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.1 }}
-              className="relative w-10 h-10 rounded-xl overflow-hidden transition-all shrink-0
-                       bg-muted/50 p-1.5 border border-border/50"
-              style={{
-                backgroundColor: cardColorData.applyColor ? 'rgba(255,255,255,0.2)' : undefined,
-                borderColor: cardColorData.applyColor ? 'rgba(255,255,255,0.2)' : undefined,
-              }}
+              className={cn(
+                "relative w-10 h-10 overflow-hidden transition-all shrink-0 p-1.5",
+                "flex items-center justify-center",
+                "rounded-xl bg-white/20 backdrop-blur-sm text-white"
+              )}
+              style={undefined}
             >
               <div ref={iconContainerRef} className="icon-container relative w-full h-full">
-                {iconState.showFallback && (
-                  <div
-                    aria-hidden="true"
-                    className="absolute inset-0 bg-center bg-contain bg-no-repeat opacity-70"
-                    style={{ backgroundImage: `url(${FALLBACK_ICON_SRC})` }}
-                  />
-                )}
-                <OptimisedLinkIcon 
-                    src={iconState.src} 
-                    alt={link.name} 
-                    onLoad={handleImageLoad}
-                    onError={handleImageError}
-                />
-                 
-                {iconState.showSpinner && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-muted/20">
-                    <div className="w-6 h-6 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
-                  </div>
+                {link.lucide ? (
+                  (() => {
+                    // lucide 网站名为 kebab-case（如 youtube），对应组件为 PascalCase（Youtube）
+                    const Pascal = link.lucide
+                      .split(/[-_\s]/)
+                      .filter(Boolean)
+                      .map((s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase())
+                      .join('');
+                    const LucideComp = (LucideIcons as unknown as Record<string, React.ComponentType<{ className?: string }>>)[Pascal];
+                    if (LucideComp) {
+                      return <LucideComp className="w-full h-full" />;
+                    }
+                    // 名称未命中：回退到图片图标流程
+                    return (
+                      <>
+                        {iconState.showFallback && (
+                          <div
+                            aria-hidden="true"
+                            className="absolute inset-0 bg-center bg-contain bg-no-repeat opacity-70"
+                            style={{ backgroundImage: `url(${FALLBACK_ICON_SRC})` }}
+                          />
+                        )}
+                        <OptimisedLinkIcon src={iconState.src} alt={link.name} onLoad={handleImageLoad} onError={handleImageError} />
+                        {iconState.showSpinner && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-muted/20">
+                            <div className="w-6 h-6 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()
+                ) : (
+                  <>
+                    {iconState.showFallback && (
+                      <div
+                        aria-hidden="true"
+                        className="absolute inset-0 bg-center bg-contain bg-no-repeat opacity-70"
+                        style={{ backgroundImage: `url(${FALLBACK_ICON_SRC})` }}
+                      />
+                    )}
+                    <OptimisedLinkIcon 
+                        src={iconState.src} 
+                        alt={link.name} 
+                        onLoad={handleImageLoad}
+                        onError={handleImageError}
+                    />
+                  
+                    {iconState.showSpinner && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-muted/20">
+                        <div className="w-6 h-6 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </motion.div>
-            
-            {/* 网站名称和图标 */}
-            <div className="flex-1 min-w-0 relative">
+          
+            {/* 网站名称（图标下方，与图标左对齐） */}
+            <div className="w-full min-w-0 relative">
               <div 
                 className="relative"
                 onMouseEnter={(e) => handleMouseEnter(e, true)}
@@ -544,105 +617,106 @@ const LinkCard = memo(function LinkCard({ link, className, showPromoBadge = fals
                 </h3>
               </div>
             </div>
+            </div>
           </div>
 
-          {/* 描述行 */}
-          {link.desc && (
-              <div 
-                className="relative flex-1 min-h-0"
-                onMouseEnter={(e) => handleMouseEnter(e, false)}
-                onMouseLeave={() => handleMouseLeave(false)}
-                onClick={(e) => handleContentClick(e, 'desc')}
-              >
-              <p className="text-xs text-foreground/80
-                         group-hover:text-foreground
-                         line-clamp-2 transition-colors">
-                {link.desc}
-              </p>
-            </div>
-          )}
+          {/* 底栏 */}
+          <div
+            className={cn(
+              "flex flex-col gap-2 p-2.5 flex-1 min-h-0",
+              "bg-card"
+            )}
+            style={{ backgroundColor: 'var(--card-footer)', color: 'var(--card-footer-fg)' }}
+          >
+            {/* 描述行 */}
+            {link.desc && (
+                <div 
+                  className="relative flex-1 min-h-0"
+                  onMouseEnter={(e) => handleMouseEnter(e, false)}
+                  onMouseLeave={() => handleMouseLeave(false)}
+                  onClick={(e) => handleContentClick(e, 'desc')}
+                >
+                <p
+                  className="text-xs line-clamp-2 transition-colors"
+                  style={{ color: 'var(--card-footer-fg)' }}
+                >
+                  {link.desc}
+                </p>
+              </div>
+            )}
 
-          {/* 底部行：标签 + 操作按钮（同一行，不增加卡片高度） */}
-          <div className="flex items-center justify-between gap-2 mt-auto flex-shrink-0">
-            {/* 标签 */}
-            <div className="flex flex-wrap gap-1.5 min-w-0 flex-1">
-              {visibleTags.slice(0, 3).map((tag) => {
-                const isBadge = tag === promoTag;
-                const badgeColor = isBadge ? getBadgeColor(tag) : undefined;
-                return (
+            {/* 底部行：标签 + 操作按钮（同一行，不增加卡片高度） */}
+            <div className="flex items-center justify-between gap-2 mt-auto flex-shrink-0">
+              {/* 标签 */}
+              <div className="flex flex-wrap gap-1.5 min-w-0 flex-1">
+                {visibleTags.slice(0, 3).map((tag) => {
+                  const isBadge = tag === promoTag;
+                  const tagColor = getBadgeColor(tag);
+                  return (
                   <span
                     key={tag}
                     className={cn(
                       'link-tag inline-flex items-center px-2 py-0.5 text-xs rounded-md transition-colors',
-                      isBadge
-                        ? 'text-white border-transparent'
-                        : tagUseCardColor
-                          ? 'bg-white/20'
-                          : 'bg-foreground/15 text-foreground/90 group-hover:bg-primary/15 group-hover:text-primary border border-foreground/10',
-                      !isBadge && tag.includes('力荐') && !tagUseCardColor && 'link-tag-featured'
+                      'text-white border-transparent',
+                      !isBadge && tag.includes('力荐') && 'link-tag-featured'
                     )}
-                    style={isBadge ? { backgroundColor: badgeColor } : (tagUseCardColor ? { color: cardColorData.textColor } : undefined)}
+                    style={{ backgroundColor: tagColor }}
                     title={tag}
                   >
                     <span className="link-tag-label truncate max-w-[80px]">{tag}</span>
                   </span>
-                );
-              })}
-              {visibleTags.length > 3 && (
-                <span
-                  className={cn(
-                    'link-tag inline-flex items-center px-2 py-0.5 text-xs rounded-md shrink-0 transition-colors',
-                    tagUseCardColor
-                      ? 'bg-white/20'
-                      : 'bg-foreground/15 text-foreground/90 group-hover:bg-primary/15 group-hover:text-primary border border-foreground/10'
-                  )}
-                  style={{
-                    color: tagUseCardColor ? cardColorData.textColor : undefined,
-                  }}
-                >
-                  +{visibleTags.length - 3}
-                </span>
-              )}
-            </div>
+                  );
+                })}
+                {visibleTags.length > 3 && (
+                  <span
+                    className={cn(
+                      'link-tag inline-flex items-center px-2 py-0.5 text-xs rounded-md shrink-0 transition-colors',
+                      'bg-[color:var(--card-footer-fg)]/20 text-[color:var(--card-footer-fg)] border border-[color:var(--card-footer-fg)]/20'
+                    )}
+                  >
+                    +{visibleTags.length - 3}
+                  </span>
+                )}
+              </div>
 
-            {/* 操作按钮 */}
-            <div className="flex items-center gap-1 shrink-0">
-              {link.command && (
+              {/* 操作按钮 */}
+              <div className="flex items-center gap-1 shrink-0">
+                {link.command && (
+                  <button
+                    type="button"
+                    onClick={handleCopyCommand}
+                    className={actionClass}
+                    style={actionStyle}
+                    title="复制口令"
+                    aria-label="复制口令"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={handleCopyCommand}
+                  onClick={handleShare}
                   className={actionClass}
                   style={actionStyle}
-                  title="复制口令"
-                  aria-label="复制口令"
+                  title="分享"
+                  aria-label="分享"
                 >
-                  <Copy className="w-3.5 h-3.5" />
+                  <Share2 className="w-3.5 h-3.5" />
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={handleShare}
-                className={actionClass}
-                style={actionStyle}
-                title="分享"
-                aria-label="分享"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-              </button>
-              <a
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={actionClass}
-                style={actionStyle}
-                title="打开"
-                aria-label="打开"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={actionClass}
+                  style={actionStyle}
+                  title="打开"
+                  aria-label="打开"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
             </div>
           </div>
-        </div>
 
         {/* 渐变悬浮效果 */}
         <div className="absolute inset-0 -z-10 bg-gradient-to-br from-transparent via-transparent to-transparent
